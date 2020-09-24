@@ -58,6 +58,18 @@ TARGET_FILESYSTEMS = [
         "type": "ext4",
         "required": False,
     },
+    {
+        "name": "odm",
+        "pattern": "ODM*",
+        "type": "ext4",
+        "required": False,
+    },
+    # {
+    #     "name": "product",
+    #     "pattern": "PRODUCT*",
+    #     "type": "ext4",
+    #     "required": False,
+    # },
 ]
 
 # TARGET_FILESYSTEMS = [
@@ -494,11 +506,19 @@ class ASPExtractor:
             combined_fs.add_mount_point("/system", "ext4", "/dev/block/bootdevice/by-name/system", ["rw"])
 
         if len(fs_policies) > 2:
-            log.info("Mounting /vendor partition")
-            combined_fs = combined_fs.mount(fs_policies[2], "/vendor")
             combined_fs.fsname = "combined"
 
+            log.info("Mounting /vendor partition")
+            combined_fs = combined_fs.mount(fs_policies[2], "/vendor")
             combined_fs.add_mount_point("/vendor", "ext4", "/dev/block/bootdevice/by-name/vendor", ["rw"])
+
+            log.info("Mounting /odm partition")
+            combined_fs = combined_fs.mount(fs_policies[3], "/odm")
+            combined_fs.add_mount_point("/odm", "ext4", "/dev/block/bootdevice/by-name/odm", ["rw"])
+
+            #
+            # combined_fs.add_mount_point("/product", "ext4", "/dev/block/bootdevice/by-name/product", ["rw"])
+            # combined_fs.add_mount_point("/vendor", "ext4", "/dev/block/bootdevice/by-name/vendor", ["rw"])
 
         # Extract out the policy files (from most preferential to least)
         for fn, p in combined_fs.files.items():
