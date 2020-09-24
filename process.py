@@ -7,12 +7,12 @@ import os
 import logging
 import shutil
 import json
-
+from plot import plot
 import networkx as nx
 from prolog import Prolog
 from config import *
 from security_policy import ASPCodec, AndroidSecurityPolicy
-from android.file_contexts import read_file_contexts
+from android.file_contexts import read_file_contexts, read_file_contexts_regex
 from android.initrc import AndroidInit
 from segraph import SELinuxPolicyGraph
 from sedump import SELinuxPolicyDump
@@ -85,6 +85,7 @@ def main():
         file_contexts = read_file_contexts(asp.get_saved_file_path("plat_file_contexts"))
         file_contexts += read_file_contexts(asp.get_saved_file_path("nonplat_file_contexts"))
     elif major >= 9:
+        # find_cp_redundancy(asp)
         file_contexts = read_file_contexts(asp.get_saved_file_path("plat_file_contexts"))
         file_contexts += read_file_contexts(asp.get_saved_file_path("vendor_file_contexts"))
     else:
@@ -100,7 +101,7 @@ def main():
             log.error("Unable to load saved instantiation: %s", e)
             return 1
     else:
-        inst = main_process(args, asp, aspc, file_contexts, primary_filesystem,
+        inst, graph = main_process(args, asp, aspc, file_contexts, primary_filesystem,
                 android_version)
 
     if inst is None:
@@ -149,6 +150,30 @@ def main():
         plot(GSUB, "subject.svg", debug=False)
 
     return 0
+
+def find_cp_redundancy(asp):
+    plat_file_contexts_regex = read_file_contexts_regex(asp.get_saved_file_path("plat_file_contexts"))
+    vendor_file_contexts_regex = read_file_contexts_regex(asp.get_saved_file_path("vendor_file_contexts"))
+    print("system")
+    for i in range(len(plat_file_contexts_regex) - 1):
+        j = i + 1
+        while j < len(plat_file_contexts_regex):
+            if plat_file_contexts_regex[i] == plat_file_contexts_regex[j]:
+                print(plat_file_contexts_regex[i])
+            j += 1
+    print("vendor")
+    for i in range(len(vendor_file_contexts_regex) - 1):
+        j = i + 1
+        while j < len(vendor_file_contexts_regex):
+            if vendor_file_contexts_regex[i] == vendor_file_contexts_regex[j]:
+                print(vendor_file_contexts_regex[i])
+            j += 1
+
+    print("system and vendor")
+    for i in plat_file_contexts_regex:
+        for j in vendor_file_contexts_regex:
+            if i == j:
+                print(i)
 
 def determine_hardware(asp, primary_filesystem, init):
     rohw = 'ro.hardware'
@@ -237,6 +262,7 @@ def main_process(args, asp, aspc, file_contexts, primary_filesystem, android_ver
         return 1
 
     log.info("Building SEPolicy graph")
+    # policy_graph.find_useless_type()
     graph = policy_graph.build_graph()
 
     log.info("Created SEPolicy graph with %d nodes and %d edges",
@@ -267,7 +293,7 @@ def main_process(args, asp, aspc, file_contexts, primary_filesystem, android_ver
         #inst.file_mapping = {}
         aspc._save_db(inst, "inst")
 
-    return inst
+    return inst, graph
 
 def make_cute(G, show_labels=True):
     import math
@@ -321,98 +347,6 @@ def make_cute(G, show_labels=True):
     nx.set_node_attributes(G, labels, 'label')
     nx.set_node_attributes(G, fontsizes, 'fontsize')
 
-def plot(G, name, prune=False, debug=False, focus_set=set(), edge_limit=None):
-    import networkx as nx
-
-    # NetworkX has a relationship with pygraphviz's AGraph
-    # This is a wrapper around graphviz (binary/library)
-    # The python graphviz library is separate
-    import pygraphviz
-
-    remove_edges = False
-
-    nx.set_node_attributes(G, 'filled,solid', 'style')
-
-    if prune:
-        while True:
-            to_remove = []
-            for n in G.nodes():
-                if n.startswith("process") or n.startswith("subject"):
-                    continue
-
-                ie = set(map(lambda x: x[0], list(G.in_edges(n))))
-                oe = set(map(lambda x: x[1], list(G.out_edges(n))))
-                total = len(ie | oe)
-
-                if total <= 1:
-                    to_remove += [n]
-
-            if len(to_remove) == 0:
-                break
-
-            log.info("Removing %d unconnected nodes", len(to_remove))
-            list(map(G.remove_node, to_remove))
-
-    if len(focus_set):
-        to_keep = []
-
-        for center_node in sorted(list(focus_set)):
-            node_focus = set([center_node])
-            node_focus |= set(map(lambda x: x[0], list(G.in_edges(center_node))))
-            node_focus |= set(map(lambda x: x[1], list(G.out_edges(center_node))))
-
-            for node in list(node_focus):
-                if node != center_node and (node.startswith("process") or node.startswith("subject")):
-                    node_focus |= set(map(lambda x: x[1], list(G.out_edges(node))))
-
-            to_keep += [node_focus]
-
-        from functools import reduce
-        if len(to_keep) == 2:
-            nodes_to_keep = (to_keep[0] & to_keep[1]) | focus_set
-        else:
-            nodes_to_keep = reduce(lambda x,y: x | y, to_keep)
-
-        G = G.subgraph(list(nodes_to_keep))
-
-    log.info("Drawing graph with %d nodes and %d edges" % (len(G.nodes()), len(G.edges())))
-
-    if edge_limit is not None and len(G.edges()) >= edge_limit:
-        remove_edges = True
-
-    if remove_edges:
-        AG = nx.nx_agraph.to_agraph(nx.create_empty_copy(G))
-        log.warning("Way too many edges! Dropping all of them")
-    else:
-        AG = nx.nx_agraph.to_agraph(G)
-
-    if debug:
-        from IPython import embed
-        oldlevel = logging.getLogger().getEffectiveLevel()
-        logging.getLogger().setLevel(logging.INFO)
-        embed()
-        logging.getLogger().setLevel(oldlevel)
-
-    log.info("Layout + SVG drawing")
-
-    # The SFDP program is extremely good at large graphs
-    AG.layout(prog='sfdp')
-
-    AG.draw(name, prog="sfdp", format='svg', args='-Gsmoothing=rng -Goverlap=prism2000 -Goutputorder=edgesfirst -Gsep=+2')
-
-    #make_cute(G, show_labels=False)
-    #AG = nx.nx_agraph.to_agraph(G)
-    #AG.layout(prog='sfdp')
-    #AG.draw('test2.svg', prog="sfdp", format='svg', args='-Gsmoothing=rng -Goverlap=prism2000 -Goutputorder=edgesfirst -Gsep=+2')
-
-    #open('test.dot', 'w').write(AG.to_string())
-
-    #from subprocess import Popen
-    #p = Popen(['mingle', '-v', 'test.dot', '-o', 'wow.dot'])
-    #p.communicate()
-
-    #ag2 = pygraphviz.AGraph('wow.dot')
-    #ag2.draw('test2.svg', prog='neato', format='svg', args='-Goverlap=false -Goutputorder=edgesfirst -n2')
 
 if __name__ == "__main__":
     sys.exit(main())

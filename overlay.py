@@ -6,6 +6,7 @@ import re
 from enum import Enum
 from IPython import embed
 from fnmatch import fnmatch
+from plot import plot
 
 from android.dac import Cred, AID_MAP, AID_MAP_INV
 from android.sepolicy import SELinuxContext
@@ -294,6 +295,7 @@ class SEPolicyInst(object):
         log.info("Simulating process permissions...")
         if not self.simulate_process_permissions():
             return False
+            #pass
 
         ### Graphing
 
@@ -385,7 +387,7 @@ class SEPolicyInst(object):
                 node = SubjectNode(Cred())
         else:
             if teclass in ['drmservice', 'debuggerd', 'property_service', 'service_manager', 'hwservice_manager',
-                    'binder', 'key', 'msg', 'system', 'security', 'keystore_key', 'zygote']:
+                    'binder', 'key', 'msg', 'system', 'security', 'keystore_key', 'zygote', 'kernel_service']:
                 node = IPCNode(teclass)
             elif teclass in ['netif', 'peer', 'node']:
                 node = IPCNode("socket")
@@ -498,6 +500,7 @@ class SEPolicyInst(object):
             # associate a SID (ty) with a file (f) and its (perm)issions
             self.file_mapping[ty]["files"][f] = perm
 
+    # This proc is simplified to make clear
     def recover_subject_hierarchy(self):
         G = self.sepolicy["graphs"]["allow"]
         Gt = self.sepolicy["graphs"]["transition"]
@@ -529,21 +532,23 @@ class SEPolicyInst(object):
                 log.debug('Nothing to back propagate %s', object_type)
                 continue
 
-            parent_obj = self.subjects[parent]
-            child_obj = self.subjects[child]
+            # parent_obj = self.subjects[parent]
+            # child_obj = self.subjects[child]
 
             # Build the process hierarchy
-            parent_obj.children |= set([child_obj])
-            child_obj.parents |= set([parent_obj])
+            # parent_obj.children |= set([child_obj])
+            # child_obj.parents |= set([parent_obj])
+
+            self.subjects[parent].children |= set([self.subjects[child]])
+            self.subjects[child].parents |= set([self.subjects[parent]])
 
             # Map the found files to the domain
-            child_obj.associate_file(self.file_mapping[object_type]["files"])
+            # child_obj.associate_file(self.file_mapping[object_type]["files"])
+            self.subjects[child].associate_file(self.file_mapping[object_type]["files"])
 
         ## Recover dyntransitions for the process tree
         for subject_name, subject in self.subjects.items():
-            node = G[subject_name]
-
-            for child in node:
+            for child in G[subject_name]:
                 for _, edge in G[subject_name][child].items():
                     if edge["teclass"] == "process" and \
                             ("dyntransition" in edge["perms"] or "transition" in edge["perms"]) and \
@@ -552,9 +557,9 @@ class SEPolicyInst(object):
                         # We may have already caught this during the file mapping, but that's why
                         # we're dealing with sets
                         for c in self.expand_attribute(child):
-                            child_subject = self.subjects[c]
-                            subject.children |= set([child_subject])
-                            child_subject.parents |= set([subject])
+                            # child_subject = self.subjects[c]
+                            subject.children |= set([self.subjects[c]])
+                            self.subjects[c].parents |= set([subject])
 
         ## Special cases
         ##
@@ -610,6 +615,8 @@ class SEPolicyInst(object):
                 (fn, fobj), = found_files[0].items()
                 log.info("Last ditch file mapping recovery for %s found '%s'", domain, fn)
                 self.subjects[domain].associate_file(found_files[0])
+            else:
+                log.info("Can not find associate file for domain '%s'", domain)
 
     def extract_selinux_capabilities(self):
         G = self.sepolicy["graphs"]["allow"]
@@ -1254,6 +1261,8 @@ Groups:\t%s
     def inflate_subjects(self):
         G = self.sepolicy["graphs"]["allow"]
 
+        G_subject = nx.MultiDiGraph()
+
         self.subjects = {}
         self.subject_groups = {}
         domain_attributes = set()
@@ -1270,6 +1279,9 @@ Groups:\t%s
 
             domain_attributes |= set(attribute_membership)
 
+            G_subject.add_node('domain', fillcolor='#f7bb00')
+            G_subject.add_edge('domain', domain)
+
         domain_attributes = sorted(list(domain_attributes))
 
         # Make sure not to include any attributes that have objects too!
@@ -1283,13 +1295,18 @@ Groups:\t%s
                             attr, domain)
                     bad = True
                     # Don't break in order to list all violations
-
+                else:
+                    if attr != "domain":
+                        G_subject.add_node(attr, fillcolor='#b700ff')
+                    G_subject.add_edge(attr, domain)
             if attr not in G:
                 bad = True
                 log.warn("Domain attribute %s is bad (reason: no allow rules)", attr)
 
             if not bad:
                 good += [attr]
+
+        #plot(G_subject, "G_subject.svg", debug=False)
 
         self.domain_attributes = good
 
@@ -1305,6 +1322,10 @@ Groups:\t%s
     def flatten_subject_graph(self):
         log.info("Flattening subject graph...")
 
+        # G_attr = nx.MultiDiGraph()
+        # G_split_attr = nx.MultiDiGraph()
+
+
         GS = self.sepolicy["graphs"]["dataflow"]
         obj_refs = nx.get_node_attributes(GS, 'obj')
         edge_refs = nx.get_edge_attributes(GS, 'ty')
@@ -1315,6 +1336,11 @@ Groups:\t%s
         for sn, subject in self.subject_groups.items():
             in_edges = GS.in_edges(subject.get_node_name(), keys=True)
             out_edges = GS.out_edges(subject.get_node_name(), keys=True)
+
+            # G_attr.add_node(subject.get_node_name(), fillcolor=OBJ_COLOR_MAP['unknown'])
+            # G_attr.add_edges_from(in_edges)
+            # G_attr.add_edges_from(out_edges)
+
             member_domains = []
 
             for u, v, e in in_edges:
@@ -1325,14 +1351,22 @@ Groups:\t%s
 
             # Copy all edges from subject_group to domain
             for member in member_domains:
+
                 in_edges_member = list(filter(lambda x: not x[0].startswith("subject"), in_edges))
                 out_edges_member = list(filter(lambda x: edge_refs[x] == 'write', out_edges))
 
                 in_edges_member = list(map(lambda x: (x[0], member), in_edges_member))
                 out_edges_member = list(map(lambda x: (member, x[1]), out_edges_member))
+
+                # G_split_attr.add_node(member, fillcolor=OBJ_COLOR_MAP['unknown'])
+                # G_split_attr.add_edges_from(in_edges_member)
+                # G_split_attr.add_edges_from(out_edges_member)
+
                 GS_flat.add_edges_from(in_edges_member)
                 GS_flat.add_edges_from(out_edges_member)
 
+            # plot(G_attr, "G_attr.svg", debug=False)
+            # plot(G_split_attr, "G_split_attr.svg", debug=False)
         # Finally delete all the subject groups
         GS_flat.remove_nodes_from(list(map(lambda x: x.get_node_name(), self.subject_groups.values())))
 
@@ -1421,27 +1455,49 @@ Groups:\t%s
 
     def split_node(self, GS_flat, name, obj, owner_name):
         # read/write w.r.t to the owner
+
+        # G_ipc = nx.MultiDiGraph()
+        # G_split_ipc = nx.MultiDiGraph()
+
+        # G_ipc.add_node(owner_name, fillcolor=OBJ_COLOR_MAP['subject'])
+        # G_ipc.add_node(name, fillcolor=OBJ_COLOR_MAP['unknown'])
+        # G_split_ipc.add_node(owner_name, fillcolor=OBJ_COLOR_MAP['subject'])
+
         read_edges = GS_flat.in_edges(name)  # ([SubA], [IPC]), ([SubC], [IPC]), ([SubD], [IPC])
         write_edges = GS_flat.out_edges(name)
+
+        # G_ipc.add_edges_from(read_edges)
+        # G_ipc.add_edges_from(write_edges)
+
         r_name = name+"_r"
         w_name = name+"_w"
 
         GS_flat.add_node(r_name, obj=obj)
         GS_flat.add_node(w_name, obj=obj)
 
+        # G_split_ipc.add_node(r_name, fillcolor=OBJ_COLOR_MAP['unknown'])
+        # G_split_ipc.add_node(w_name, fillcolor=OBJ_COLOR_MAP['unknown'])
+
         nbefore = len(GS_flat.nodes())
 
         GS_flat.add_edge(r_name, owner_name, ty="read")
+        # G_split_ipc.add_edge(r_name, owner_name)
 
         for u, v in read_edges:
             if u != owner_name:
                 GS_flat.add_edge(u, r_name, ty="write") # w.r.t U
+                # G_split_ipc.add_edge(u, r_name)
 
         GS_flat.add_edge(owner_name, w_name, ty="write")
+        # G_split_ipc.add_edge(owner_name, w_name)
 
         for u, v in write_edges:
             if v != owner_name:
                 GS_flat.add_edge(w_name, v, ty="read") # w.r.t V
+                # G_split_ipc.add_edge(w_name, v)
+
+        # plot(G_ipc, "G_ipc.svg", debug=False)
+        # plot(G_split_ipc, "G_split_ipc.svg", debug=False)
 
         assert len(GS_flat.nodes()) == nbefore
 
@@ -1621,7 +1677,9 @@ Groups:\t%s
 
             GS.add_node(s.get_node_name(), obj=s, fillcolor=OBJ_COLOR_MAP['subject'])
 
-        for attr in self.domain_attributes:
+        #for attr in self.domain_attributes:
+        #set(self.domain_attributes) - set(self.subject_groups.keys()) = phi
+        for attr in self.subject_groups.keys():
             s = self.subject_groups[attr]
 
             GS.add_node(s.get_node_name(), obj=s, fillcolor=OBJ_COLOR_MAP['subject_group'])
@@ -1638,7 +1696,9 @@ Groups:\t%s
 
         # TODO: handle actions applied attributes containing domains
         #for subject_name, subject in self.subjects.items():
-        for subject_name in list(self.subjects) + self.domain_attributes:
+        #for subject_name in list(self.subjects) + self.domain_attributes:
+        # set(list(self.subjects.keys()) + list(self.subject_groups.keys())) - set(list(self.subjects) + self.domain_attributes) = phi
+        for subject_name in list(self.subjects.keys()) + list(self.subject_groups.keys()):
             if subject_name in self.subjects:
                 subject = self.subjects[subject_name]
             else:
@@ -1648,12 +1708,12 @@ Groups:\t%s
                 log.info("Skipping subject %s as it has no backing files", subject_name)
                 continue
 
-            node = G[subject_name]
+            #node = G[subject_name]
 
             # We assume a static graph where all subjects are created already
             # Inflate all possible objects and associate DAC/MAC policies with them
-            for obj_name in node:
-
+            #for obj_name in node:
+            for obj_name in G[subject_name]:
                 for _, edge in G[subject_name][obj_name].items():
 
                     ###### Create object
@@ -1992,6 +2052,7 @@ Groups:\t%s
             for fc in sorted(missing, key=lambda _: _.regex.pattern):
                 report.write(fc.regex.pattern + " " + fc.context.type + "\n")
 
+    # TODO: need to refine this process according the real context initialization.
     def apply_file_contexts(self):
         recovered_labels = 0
         dropped_files = {}
@@ -2012,6 +2073,10 @@ Groups:\t%s
             # Sort by least used match to most used
             matches = sorted(matches, key=lambda x: match_freq[x])
 
+            # if len(matches) > 1:
+            #     log.info("%s", f)
+            #     log.info("%s", matches)
+
             # attempt to apply genfs for filesystem
             if len(matches) <= 0 or f in self.filesystem.mount_points:
                 import re
@@ -2029,6 +2094,9 @@ Groups:\t%s
                             fsmap = genfs[fstype]
 
                             for p, ctx in fsmap:
+                                # if path == "/sys" and p == '/devices/system/cpu' and ctx == 'u:object_r:sysfs_devices_system_cpu:s0':
+                                #     if re.match(r'^' + p + r'.*', relfs):
+                                #         print("foo")
                                 if re.match(r'^' + p + r'.*', relfs):
                                     genfs_matches += [[path, p, ctx]]
                         elif fstype in fs_use:
@@ -2040,8 +2108,12 @@ Groups:\t%s
 
                 if len(genfs_matches):
                     genfs_matches = sorted(genfs_matches, reverse=True, key=lambda x: x[0])
+                    # if len(genfs_matches) > 1:
+                    #     print(genfs_matches)
                     primary_path = genfs_matches[0][0]
                     genfs_matches = sorted(filter(lambda x: x[0] == primary_path, genfs_matches), reverse=True, key=lambda x: x[1])
+                    # if len(genfs_matches) > 1:
+                    #     print(genfs_matches)
                     primary_match = SELinuxContext.FromString(genfs_matches[0][2])
                 else:
                     if not perm["selinux"]:
@@ -2050,8 +2122,22 @@ Groups:\t%s
 
                     continue
             else:
-                # heuristic: choose longest string as most specific match
-                primary_match = matches[0].context
+                # tong: use the longest prefix
+                # ref: lookup_best_match in label_file.c
+                prefix_len = 0
+                for m in matches:
+                    r = re.compile(r"\.|\^|\$|\?|\*|\+|\||\[|\(|\{")
+                    regex = m.regex.pattern[1:len(m.regex.pattern) - 1]
+                    pos = r.search(regex)
+                    if pos:
+                        cur_prefix_len = pos.span()[0]
+                    else:
+                        cur_prefix_len = len(regex)
+                    if cur_prefix_len > prefix_len:
+                        primary_match = m.context
+                        prefix_len = cur_prefix_len
+
+                # primary_match = matches[0].context
 
             # no SELinux label found? apply one from file_contexts
             if not perm["selinux"]:

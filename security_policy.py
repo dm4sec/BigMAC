@@ -8,8 +8,11 @@ import stat
 import glob
 import pickle
 import copy
+import android_extract
+
 from fnmatch import fnmatch
 from subprocess import Popen
+
 
 from config import *
 from android.property import AndroidPropertyList
@@ -24,27 +27,64 @@ log = logging.getLogger(__name__)
 # For now, we only are supporting the system and boot filesystems
 # TODO: vendor, userdata, etc.
 # TODO: properly handle system_other on AOSP
+
+'''
+"name": "boot",
+"pattern": "*boot*",
+"type": "ramdisk",
+"required": True,
+'''
+
 TARGET_FILESYSTEMS = [
     {
         "name": "boot",
-        "pattern": "*boot*",
+        "pattern": "RECOVERY_RAMDISK*",            # huawei specific
+        #"pattern": "RAMDISK*",            # huawei specific
+        #"pattern": "recovery_ramdisk*",            # huawei specific
         "type": "ramdisk",
         "required": True,
+
     },
     {
         "name": "system",
-        "pattern": "*system*",
+        "pattern": "SYSTEM33*",
         "not_pattern": "*system_other*",
         "type": "ext4",
         "required": True,
     },
     {
         "name": "vendor",
-        "pattern": "*vendor*",
+        "pattern": "VENDOR39*",
         "type": "ext4",
         "required": False,
     },
 ]
+
+# TARGET_FILESYSTEMS = [
+#     {
+#         "name": "boot",
+#         "pattern": "recovery_ramdisk*",            # huawei specific
+#         #"pattern": "RAMDISK*",            # huawei specific
+#         #"pattern": "recovery_ramdisk*",            # huawei specific
+#         "type": "ramdisk",
+#         "required": True,
+#
+#     },
+#     {
+#         "name": "system",
+#         "pattern": "system*",
+#         "not_pattern": "*system_other*",
+#         "type": "ext4",
+#         "required": True,
+#     },
+#     {
+#         "name": "vendor",
+#         "pattern": "vendor*",
+#         "type": "ext4",
+#         "required": False,
+#     },
+# ]
+
 
 def path_to_firmware_name(filepath):
     firmware_name = os.path.basename(filepath)
@@ -262,7 +302,10 @@ class AndroidSecurityPolicy:
         props = self.properties
         android_version = props['ro.build.version.release']
         build_id = props['ro.build.id']
-        brand =  props['ro.product.brand']
+        try:
+            brand = props['ro.product.brand']
+        except:
+            brand = "unknown"
 
         # Some samsung/lineage prop files don't have a model listed...
         model = props.get_multi_default(
@@ -519,9 +562,12 @@ class ASPExtractor:
         log.info("Extracting %s...", firmware_name)
 
         if not skip:
+            '''
             p = Popen([AT_EXTRACT_PATH, filepath, vendor_name, self.job_id, '1', '0'])
             p.communicate()
+            '''
             # TODO: check for error
+            android_extract.py_extract(filepath, vendor_name, self.job_id)
 
         if not os.path.isdir(job_result_dir):
             log.error("No filesystem result directory found. Possible extraction error")
@@ -606,7 +652,10 @@ class ASPExtractor:
                 if exp.errno == errno.EACCES:
                     log.error("Unable to access file during walk. Make sure you are root!")
                     sys.exit(1)
-
+            if isinstance(exp, OSError):
+                if exp.errno == errno.EACCES:
+                    log.error("Unable to access file during walk. Make sure you are root!")
+                    sys.exit(1)
             raise
 
         fsp = FilesystemPolicy(fs_name, fs_type)

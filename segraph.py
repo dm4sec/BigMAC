@@ -18,6 +18,7 @@
 
 import setools
 import networkx as nx
+from plot import plot
 
 from setools.policyrep import terule
 from setools.policyrep import exception
@@ -104,7 +105,7 @@ class SELinuxPolicyGraph(setools.SELinuxPolicy):
                 perms = terule_.perms
                 assert(type(perms) == set)
 
-                if terule_.ruletype == "allow":
+                if terule_.ruletype == "allow" or terule_.ruletype == "auditallow":
                     u_type = str(terule_.source)
                     v_type = str(terule_.target)
 
@@ -116,6 +117,7 @@ class SELinuxPolicyGraph(setools.SELinuxPolicy):
                     # Add an individual edge from u -> v for each perm
                     #for x in perms:
                     G_allow.add_edge(u_type, v_type, teclass=str(terule_.tclass), perms=[str(x) for x in perms])
+                    #plot(G_allow, "G_allow.svg", debug=False)
 
             # type_* type enforcement rules
             elif isinstance(terule_, terule.TERule):
@@ -142,6 +144,7 @@ class SELinuxPolicyGraph(setools.SELinuxPolicy):
                                       teclass=str(terule_.tclass),
                                       through=str(terule_.target),
                                       name=file_qualifier)
+                #plot(G_transition, "G_transition.svg", debug=False)
             else:
                 raise RuntimeError("Unhandled TE rule")
 
@@ -165,3 +168,92 @@ class SELinuxPolicyGraph(setools.SELinuxPolicy):
         }
 
         return policy
+
+    def find_useless_type(self):
+
+        sort = True
+
+        def cond_sort(value):
+            """Helper function to sort values according to the sort parameter"""
+            return value if not sort else sorted(value)
+
+        # base identifiers
+        classes = {}
+        attributes = {}
+        commons = {}
+        types = {}
+        aliases = {}
+        ta_used = set()
+
+        # define type attributes
+        for attribute_ in cond_sort(self.typeattributes()):
+            attributes[str(attribute_)] = []
+
+        # access vectors
+        for common_ in cond_sort(self.commons()):
+            commons[str(common_)] = [str(x) for x in common_.perms]
+
+        # security object classes
+        for class_ in cond_sort(self.classes()):
+            try:
+                parent = str(class_.common)
+                commons[parent] # just ensure it exists
+            except exception.NoCommon:
+                parent = None
+
+            perms = [str(x) for x in class_.perms]
+            classes[str(class_)] = { "perms" : perms, "parent" : parent }
+
+        # define types, aliases and attributes
+        for type_ in cond_sort(self.types()):
+            name = str(type_)
+
+            for attr in type_.attributes():
+                attributes[str(attr)] += [name]
+
+            for alias in type_.aliases():
+                types[str(alias)] = name
+                aliases[str(alias)] = True
+
+            types[name] = [str(x) for x in type_.attributes()]
+
+        # define type enforcement rules
+        for terule_ in cond_sort(self.terules()):
+            # allowxperm rules
+            if isinstance(terule_, terule.AVRuleXperm):
+                # "{0.ruletype} {0.source} {0.target}:{0.tclass} {0.xperm_type}"
+                ta_used.add(str(terule_.source))
+                ta_used.add(str(terule_.target))
+
+            # allow/dontaudit/auditallow/neverallow rules
+            elif isinstance(terule_, terule.AVRule):
+                # "{0.ruletype} {0.source} {0.target}:{0.tclass}"
+                ta_used.add(str(terule_.source))
+                ta_used.add(str(terule_.target))
+            # type_* type enforcement rules
+            elif isinstance(terule_, terule.TERule):
+                # "{0.ruletype} {0.source} {0.target}:{0.tclass} {0.default}".format(terule_)
+                ta_used.add(str(terule_.source))
+                ta_used.add(str(terule_.target))
+                ta_used.add(str(terule_.default))
+            else:
+                raise RuntimeError("Unhandled TE rule")
+
+        print("attributes")
+        for k in attributes.keys():
+            if k not in ta_used:
+                print(k)
+
+        print("types")
+        for k in types.keys():
+            if k not in ta_used:
+                is_used_in_attr = False
+                for a in types[k]:
+                    if a in ta_used:
+                        is_used_in_attr = True
+                        break
+                if is_used_in_attr == False:
+                    print(k)
+
+        print("done")
+        return
