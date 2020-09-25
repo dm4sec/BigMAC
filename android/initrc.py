@@ -121,11 +121,15 @@ class AndroidInitService(object):
     def add_option(self, option, args):
         if option == "user":
             self.cred.uid = AID_MAP_INV.get(args[0], 9999)
+            if self.cred.uid == 9999:
+                log.warning("Missing AID definition for user: %s", args[0])
         elif option == "capabilities":
             for cap in args:
                 self.cred.cap.add('ambient', cap)
         elif option == "group":
             self.cred.gid = AID_MAP_INV.get(args[0], 9999)
+            if self.cred.gid == 9999:
+                log.warning("Missing AID definition for group: %s", args[0])
 
             for group in args[1:]:
                 try:
@@ -224,6 +228,11 @@ class AndroidInit(object):
 
             user = AID_MAP_INV.get(args[0], 9999)
             group = AID_MAP_INV.get(args[1], 9999)
+            if user == 9999:
+                log.warning("Missing AID definition for user: %s", args[2])
+            if group == 9999:
+                log.warning("Missing AID definition for group: %s", args[2])
+
             path = args[2]
 
             # Try to instantiate it anyways
@@ -455,6 +464,15 @@ class AndroidInit(object):
                 fn_expand = fn + "/" + node_name
             else:
                 continue
+
+            user = AID_MAP_INV.get(user, 9999)
+            group = AID_MAP_INV.get(group, 9999)
+
+            if user == 9999:
+                log.warning("Missing AID definition for user: %s", components[3])
+            if group == 9999:
+                log.warning("Missing AID definition for group: %s", components[4])
+
 
             file_policy = {
                 "original_path": None,
