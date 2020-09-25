@@ -109,6 +109,10 @@ def _parse_aid_file():
             got_range = False
             aid_name = aid_name[4:-4].lower()
 
+            # exceptions to the rules
+            if aid_name.startswith("oem"):
+                aid_name = "oem"
+
             for i in range(range_start, aid+1):
                 mapping[i] = "%s_%d" % (aid_name, i)
             continue
@@ -131,5 +135,6 @@ def _parse_aid_file():
     return mapping
 
 # number to name
+# https://blog.csdn.net/lewif/article/details/49801359
 AID_MAP = _parse_aid_file()
 AID_MAP_INV = dict([[v,k] for k,v in AID_MAP.items()])

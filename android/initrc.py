@@ -211,6 +211,10 @@ class AndroidInit(object):
                 user = AID_MAP_INV.get(args[2], 9999)
             if len(args) > 3:
                 group = AID_MAP_INV.get(args[3], 9999)
+            if user == 9999:
+                log.warning("Missing AID definition for user: %s", args[2])
+            if group == 9999:
+                log.warning("Missing AID definition for group: %s", args[2])
 
             self.root_fs.mkdir(os.path.normpath(path), user, group, perm)
         elif cmd == "chown":
