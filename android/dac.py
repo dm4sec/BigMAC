@@ -82,6 +82,7 @@ def _parse_aid_file():
 
     # TODO: this is not completely cross-vendor as some vendors fork this file and add custom UIDs to it
     # The solution to this that is to extract the exported table symbol `android_id` from the libc.so ELF
+    # or to invoke getpwuid() on real box to retrieve the tuple.
     try:
         fp = open(os.path.join(os.path.dirname(__file__), 'android_fs.h'), 'r')
         data = fp.read()

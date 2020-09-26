@@ -218,7 +218,7 @@ class AndroidInit(object):
             if user == 9999:
                 log.warning("Missing AID definition for user: %s", args[2])
             if group == 9999:
-                log.warning("Missing AID definition for group: %s", args[2])
+                log.warning("Missing AID definition for group: %s", args[3])
 
             self.root_fs.mkdir(os.path.normpath(path), user, group, perm)
         elif cmd == "chown":
@@ -229,9 +229,9 @@ class AndroidInit(object):
             user = AID_MAP_INV.get(args[0], 9999)
             group = AID_MAP_INV.get(args[1], 9999)
             if user == 9999:
-                log.warning("Missing AID definition for user: %s", args[2])
+                log.warning("Missing AID definition for user: %s", args[0])
             if group == 9999:
-                log.warning("Missing AID definition for group: %s", args[2])
+                log.warning("Missing AID definition for group: %s", args[1])
 
             path = args[2]
 
@@ -247,7 +247,7 @@ class AndroidInit(object):
                 policy = {
                     "original_path": None,
                     "user": user,
-                    "group": user,
+                    "group": group,
                     "perms": mode,
                     "size": 0,
                     "link_path": "",
@@ -454,6 +454,14 @@ class AndroidInit(object):
                 user = components[2]
                 group = components[3]
 
+                user = AID_MAP_INV.get(user, 9999)
+                group = AID_MAP_INV.get(group, 9999)
+
+                if user == 9999:
+                    log.warning("Missing AID definition for user: %s", components[2])
+                if group == 9999:
+                    log.warning("Missing AID definition for group: %s", components[3])
+
                 fn_expand = fn
             elif fn.startswith("/sys") and len(components) == 5:
                 node_name = components[1]
@@ -461,23 +469,23 @@ class AndroidInit(object):
                 user = components[3]
                 group = components[4]
 
+                user = AID_MAP_INV.get(user, 9999)
+                group = AID_MAP_INV.get(group, 9999)
+
+                if user == 9999:
+                    log.warning("Missing AID definition for user: %s", components[3])
+                if group == 9999:
+                    log.warning("Missing AID definition for group: %s", components[4])
+
                 fn_expand = fn + "/" + node_name
             else:
                 continue
 
-            user = AID_MAP_INV.get(user, 9999)
-            group = AID_MAP_INV.get(group, 9999)
-
-            if user == 9999:
-                log.warning("Missing AID definition for user: %s", components[3])
-            if group == 9999:
-                log.warning("Missing AID definition for group: %s", components[4])
-
 
             file_policy = {
                 "original_path": None,
-                "user": AID_MAP_INV.get(user, 9999),
-                "group": AID_MAP_INV.get(group, 9999),
+                "user": user,
+                "group": group,
                 "perms": mode,
                 "size": 0,
                 "link_path": "",
