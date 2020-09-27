@@ -239,12 +239,12 @@ class SELinuxPolicyGraph(setools.SELinuxPolicy):
             else:
                 raise RuntimeError("Unhandled TE rule")
 
-        print("attributes")
+        print("--= Useless attributes list =--")
         for k in attributes.keys():
             if k not in ta_used:
                 print(k)
 
-        print("types")
+        print("--= Useless types list =--")
         for k in types.keys():
             if k not in ta_used:
                 is_used_in_attr = False
@@ -255,5 +255,5 @@ class SELinuxPolicyGraph(setools.SELinuxPolicy):
                 if is_used_in_attr == False:
                     print(k)
 
-        print("done")
+        print("--= done =--")
         return

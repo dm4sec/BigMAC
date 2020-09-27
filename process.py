@@ -262,7 +262,7 @@ def main_process(args, asp, aspc, file_contexts, primary_filesystem, android_ver
         return 1
 
     log.info("Building SEPolicy graph")
-    # policy_graph.find_useless_type()
+    policy_graph.find_useless_type()
     graph = policy_graph.build_graph()
 
     log.info("Created SEPolicy graph with %d nodes and %d edges",

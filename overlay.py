@@ -2064,6 +2064,8 @@ Groups:\t%s
         for f, perm in self.filesystem.files.items():
             matches = self.get_file_context_matches(f)
 
+            label_from_file_context = True
+
             for m in matches:
                 if m not in match_freq:
                     match_freq[m] = 0
@@ -2115,6 +2117,8 @@ Groups:\t%s
                     # if len(genfs_matches) > 1:
                     #     print(genfs_matches)
                     primary_match = SELinuxContext.FromString(genfs_matches[0][2])
+                    label_from_file_context = False
+                    #log.info("1")
                 else:
                     if not perm["selinux"]:
                         log.error("Unable to assign label to %s", f)
@@ -2122,6 +2126,8 @@ Groups:\t%s
 
                     continue
             else:
+                #log.info("2")
+
                 # tong: use the longest prefix
                 # ref: lookup_best_match in label_file.c
                 prefix_len = 0
@@ -2145,11 +2151,15 @@ Groups:\t%s
                 recovered_labels += 1
             else:
                 if perm["selinux"] != primary_match:
-                    log.warn("Context mismatch between xattr (%s) and file_context (%s) for %s. Preferring latter",
-                            perm["selinux"], primary_match, f)
-                    recovered_labels += 1
-                    # prefer file_contexts as xattrs may be overriden by restorecon on boot
-                    perm["selinux"] = primary_match
+                    if label_from_file_context:
+                        log.warn("Context mismatch between xattr (%s) and file_context (%s) for %s. Preferring former",
+                                perm["selinux"], primary_match, f)
+                    else:
+                        log.warn("Context mismatch between xattr (%s) and file_context (%s) for %s. Preferring latter",
+                                perm["selinux"], primary_match, f)
+                        recovered_labels += 1
+                        # prefer file_contexts as xattrs may be overriden by restorecon on boot
+                        perm["selinux"] = primary_match
 
         for fn in dropped_files:
             del self.filesystem.files[fn]
