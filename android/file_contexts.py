@@ -89,3 +89,26 @@ def read_file_contexts(source):
     contexts = sorted(contexts, key=lambda x: x.regex.pattern)
 
     return contexts
+
+def read_file_contexts_regex(source):
+    retMe = []
+    fp = open(source, 'r')
+    data = fp.read()
+    fp.close()
+
+    for line_no, line in enumerate(data.split("\n")):
+        # Ignore comments and blank lines
+        if re.match('^(\s*#)|(\s*$)', line):
+            continue
+
+        # greedly replace all whitespace with a single space for splitting
+        line = re.sub('\s+', " ", line)
+
+        # split by spaces, while eliminating empty components
+        components = list(filter(lambda x: len(x) > 0, line.split(" ")))
+        regex = components[0]
+        if regex.endswith('(/.*)?'):
+            regex = regex[:len(regex) - len('(/.*)?')]
+        retMe.append(regex)
+
+    return retMe
