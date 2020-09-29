@@ -505,6 +505,10 @@ class Prolog(object):
                 pretty = self.node_id_map_inv[node]
                 plnode = node
             else:
+                for k in self.node_id_map.keys():
+                    if k.find(node) != -1:
+                        log.error("Recommended argument: %s -> %s", node, k)
+
                 return None, None
 
         return plnode, pretty
